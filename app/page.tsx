@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { createClient } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { Target, Sparkles } from "lucide-react"
 
 export default function Home() {
@@ -50,6 +51,11 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-background to-muted">
+      {/* Header with theme toggle */}
+      <div className="absolute top-0 right-0 p-6">
+        <ThemeToggle />
+      </div>
+      
       <div className="max-w-7xl mx-auto px-4 py-20">
         {/* Hero Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center mb-20">
