@@ -12,6 +12,16 @@ export const metadata: Metadata = {
   title: "Resolution Tracker - Achieve Your New Year Goals",
   description: "Track and achieve your New Year's resolutions with detailed milestones and progress visualization.",
   generator: "v0.app",
+  applicationName: "Resolution Tracker",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Resolution Tracker",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  manifest: "/manifest.json",
   icons: {
     icon: [
       {
@@ -38,6 +48,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
+        <meta name="theme-color" content="#5c6cdb" />
+      </head>
       <body className={`font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
