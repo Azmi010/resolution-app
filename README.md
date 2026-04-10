@@ -8,6 +8,7 @@ A comprehensive New Year's resolution tracking application built with Next.js 16
 - **Year Management**: Create and manage multiple years
 - **Resolution Tracking**: Set, track, and complete resolutions for each year
 - **Milestone System**: Break down resolutions into smaller, manageable targets
+- **Flexible Target Notes**: Add grouped notes per target (e.g., Olahraga, Makan) with free-form multiline content
 - **Progress Visualization**: Visual progress bars showing completion percentage
 - **Responsive Design**: Beautiful UI that works on all devices
 - **Real-time Updates**: Instant updates using Supabase realtime features
@@ -50,6 +51,10 @@ A comprehensive New Year's resolution tracking application built with Next.js 16
    - Copy and run the SQL from `scripts/setup-schema.sql`
    - This will create all necessary tables and RLS policies
 
+5. **If your project is already running with old schema**:
+   - Run the SQL from `scripts/add-target-notes.sql`
+   - This adds the `target_notes` table and required RLS policies safely
+
 ## 🏃‍♂️ Running the Application
 
 ```bash
@@ -79,12 +84,13 @@ resolution-app/
 
 ## 🗄️ Database Schema
 
-The application uses four main tables:
+The application uses five main tables:
 
 - **profiles**: User profile information
 - **years**: Year entries for tracking resolutions
 - **resolutions**: Individual resolutions for each year
 - **targets**: Milestones/targets for each resolution
+- **target_notes**: Flexible grouped notes for each target
 
 All tables have Row Level Security (RLS) enabled to ensure users can only access their own data.
 
@@ -108,6 +114,7 @@ All tables have Row Level Security (RLS) enabled to ensure users can only access
 ### Resolution Management
 - Mark resolutions as complete/incomplete
 - Create milestones (targets) for each resolution
+- Add grouped and flexible notes inside each target (Notion-like planning style)
 - Track progress with visual progress bars
 - Edit and delete resolutions
 

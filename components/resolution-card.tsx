@@ -11,13 +11,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { Progress } from "@/components/ui/progress"
 import { Checkbox } from "@/components/ui/checkbox"
-import { ChevronDown, ChevronUp, Edit, Trash2, Plus, Target } from "lucide-react"
+import { ChevronDown, ChevronUp, Edit, Trash2, Plus, Target, NotebookPen } from "lucide-react"
 
 interface Target {
   id: string
   title: string
   is_completed: boolean
   created_at: string
+}
+
+interface TargetNote {
+  id: string
+  target_id: string
+  title: string
+  content: string | null
+  created_at: string
+}
+
+interface NoteDraft {
+  title: string
+  content: string
 }
 
 interface Resolution {
@@ -37,15 +50,23 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
   const supabase = createClient()
   const [expanded, setExpanded] = useState(false)
   const [targets, setTargets] = useState<Target[]>([])
+  const [targetNotes, setTargetNotes] = useState<Record<string, TargetNote[]>>({})
+  const [expandedTargets, setExpandedTargets] = useState<Record<string, boolean>>({})
+  const [newNoteByTarget, setNewNoteByTarget] = useState<Record<string, NoteDraft>>({})
+  const [noteLoadingByTarget, setNoteLoadingByTarget] = useState<Record<string, boolean>>({})
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showTargetDialog, setShowTargetDialog] = useState(false)
   const [showEditTargetDialog, setShowEditTargetDialog] = useState(false)
+  const [showEditNoteDialog, setShowEditNoteDialog] = useState(false)
   const [showDeleteResolutionAlert, setShowDeleteResolutionAlert] = useState(false)
   const [showDeleteTargetAlert, setShowDeleteTargetAlert] = useState(false)
+  const [showDeleteNoteAlert, setShowDeleteNoteAlert] = useState(false)
   const [editForm, setEditForm] = useState({ title: resolution.title, description: resolution.description || "" })
   const [newTargetTitle, setNewTargetTitle] = useState("")
   const [editTargetForm, setEditTargetForm] = useState({ id: "", title: "" })
+  const [editNoteForm, setEditNoteForm] = useState({ id: "", target_id: "", title: "", content: "" })
   const [targetToDelete, setTargetToDelete] = useState<string | null>(null)
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,6 +75,36 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
       fetchTargets()
     }
   }, [expanded])
+
+  const fetchTargetNotes = async (targetIds: string[]) => {
+    if (targetIds.length === 0) {
+      setTargetNotes({})
+      return
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("target_notes")
+        .select("*")
+        .in("target_id", targetIds)
+        .order("created_at", { ascending: true })
+
+      if (error) throw error
+
+      const grouped = (data || []).reduce<Record<string, TargetNote[]>>((acc, note) => {
+        if (!acc[note.target_id]) {
+          acc[note.target_id] = []
+        }
+
+        acc[note.target_id].push(note)
+        return acc
+      }, {})
+
+      setTargetNotes(grouped)
+    } catch (err) {
+      console.error("Error fetching target notes:", err)
+    }
+  }
 
   const fetchTargets = async () => {
     try {
@@ -64,10 +115,38 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
         .order("created_at", { ascending: true })
 
       if (error) throw error
-      setTargets(data || [])
+
+      const nextTargets = data || []
+      const targetIds = nextTargets.map((target) => target.id)
+
+      setTargets(nextTargets)
+      setExpandedTargets((prev) => {
+        const next: Record<string, boolean> = {}
+
+        for (const target of nextTargets) {
+          next[target.id] = prev[target.id] ?? true
+        }
+
+        return next
+      })
+      setNewNoteByTarget((prev) => {
+        const next: Record<string, NoteDraft> = {}
+
+        for (const target of nextTargets) {
+          next[target.id] = prev[target.id] || { title: "", content: "" }
+        }
+
+        return next
+      })
+
+      await fetchTargetNotes(targetIds)
     } catch (err) {
       console.error("Error fetching targets:", err)
     }
+  }
+
+  const refreshNotesForCurrentTargets = async () => {
+    await fetchTargetNotes(targets.map((target) => target.id))
   }
 
   const handleToggleComplete = async () => {
@@ -166,6 +245,102 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
       await fetchTargets()
     } catch (err) {
       console.error("Error updating target:", err)
+    }
+  }
+
+  const handleCreateNote = async (e: React.FormEvent, targetId: string) => {
+    e.preventDefault()
+    setError(null)
+
+    const draft = newNoteByTarget[targetId] || { title: "", content: "" }
+    const title = draft.title.trim()
+    const content = draft.content.trim()
+
+    if (!title) {
+      setError("Nama grup catatan wajib diisi")
+      return
+    }
+
+    setNoteLoadingByTarget((prev) => ({ ...prev, [targetId]: true }))
+
+    try {
+      const { error } = await supabase.from("target_notes").insert([
+        {
+          target_id: targetId,
+          title,
+          content,
+        },
+      ])
+
+      if (error) throw error
+
+      setNewNoteByTarget((prev) => ({ ...prev, [targetId]: { title: "", content: "" } }))
+      await refreshNotesForCurrentTargets()
+    } catch (err: any) {
+      setError(err.message || "Failed to create note group")
+    } finally {
+      setNoteLoadingByTarget((prev) => ({ ...prev, [targetId]: false }))
+    }
+  }
+
+  const handleOpenEditNote = (note: TargetNote) => {
+    setError(null)
+    setEditNoteForm({
+      id: note.id,
+      target_id: note.target_id,
+      title: note.title,
+      content: note.content || "",
+    })
+    setShowEditNoteDialog(true)
+  }
+
+  const handleUpdateNote = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+
+    const title = editNoteForm.title.trim()
+    if (!title) {
+      setError("Nama grup catatan wajib diisi")
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const { error } = await supabase
+        .from("target_notes")
+        .update({
+          title,
+          content: editNoteForm.content.trim() || null,
+        })
+        .eq("id", editNoteForm.id)
+
+      if (error) throw error
+
+      setShowEditNoteDialog(false)
+      await refreshNotesForCurrentTargets()
+    } catch (err: any) {
+      setError(err.message || "Failed to update note group")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteNote = async () => {
+    if (!noteToDelete) return
+
+    try {
+      const { error } = await supabase
+        .from("target_notes")
+        .delete()
+        .eq("id", noteToDelete)
+
+      if (error) throw error
+      setShowDeleteNoteAlert(false)
+      setNoteToDelete(null)
+      await refreshNotesForCurrentTargets()
+    } catch (err) {
+      console.error("Error deleting note group:", err)
     }
   }
 
@@ -290,40 +465,148 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
                   {targets.map((target) => (
                     <div
                       key={target.id}
-                      className="flex items-center justify-between gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                      className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
                     >
-                      <div className="flex items-center gap-3 flex-1">
-                        <Checkbox
-                          checked={target.is_completed}
-                          onCheckedChange={() => handleToggleTarget(target.id, target.is_completed)}
-                        />
-                        <span
-                          className={`text-sm ${target.is_completed ? "line-through text-muted-foreground" : "text-foreground"}`}
-                        >
-                          {target.title}
-                        </span>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 flex-1">
+                          <Checkbox
+                            checked={target.is_completed}
+                            onCheckedChange={() => handleToggleTarget(target.id, target.is_completed)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-sm ${target.is_completed ? "line-through text-muted-foreground" : "text-foreground"}`}
+                            >
+                              {target.title}
+                            </p>
+                            {(targetNotes[target.id] || []).length > 0 && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                {(targetNotes[target.id] || []).length} grup catatan
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() =>
+                              setExpandedTargets((prev) => ({
+                                ...prev,
+                                [target.id]: !prev[target.id],
+                              }))
+                            }
+                            aria-label={expandedTargets[target.id] ? "Collapse notes" : "Expand notes"}
+                          >
+                            {expandedTargets[target.id] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleEditTarget(target)}
+                          >
+                            <Edit className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive"
+                            onClick={() => {
+                              setTargetToDelete(target.id)
+                              setShowDeleteTargetAlert(true)
+                            }}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => handleEditTarget(target)}
-                        >
-                          <Edit className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive"
-                          onClick={() => {
-                            setTargetToDelete(target.id)
-                            setShowDeleteTargetAlert(true)
-                          }}
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
-                      </div>
+
+                      {expandedTargets[target.id] && (
+                        <div className="mt-3 ml-8 border-l border-border/70 pl-4 space-y-3">
+                          {(targetNotes[target.id] || []).length === 0 ? (
+                            <p className="text-xs text-muted-foreground">Belum ada catatan. Tambahkan grup seperti "Olahraga" atau "Makan".</p>
+                          ) : (
+                            <div className="space-y-2">
+                              {(targetNotes[target.id] || []).map((note) => (
+                                <div key={note.id} className="rounded-md border border-border/70 bg-background/70 p-3">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <NotebookPen className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                                      <p className="text-sm font-semibold text-foreground truncate">{note.title}</p>
+                                    </div>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleOpenEditNote(note)}>
+                                        <Edit className="w-3 h-3" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-destructive"
+                                        onClick={() => {
+                                          setNoteToDelete(note.id)
+                                          setShowDeleteNoteAlert(true)
+                                        }}
+                                      >
+                                        <Trash2 className="w-3 h-3" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <p className="mt-2 whitespace-pre-line wrap-break-word text-sm text-muted-foreground">
+                                    {note.content || "(Belum ada isi catatan)"}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          <form onSubmit={(e) => handleCreateNote(e, target.id)} className="space-y-2 rounded-md border border-dashed border-border/70 p-3 bg-background/50">
+                            <Input
+                              value={(newNoteByTarget[target.id] || { title: "", content: "" }).title}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                setNewNoteByTarget((prev) => ({
+                                  ...prev,
+                                  [target.id]: {
+                                    ...(prev[target.id] || { title: "", content: "" }),
+                                    title: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder="Nama grup (contoh: Olahraga)"
+                              className="h-9 bg-background"
+                              disabled={noteLoadingByTarget[target.id]}
+                            />
+                            <Textarea
+                              value={(newNoteByTarget[target.id] || { title: "", content: "" }).content}
+                              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                                setNewNoteByTarget((prev) => ({
+                                  ...prev,
+                                  [target.id]: {
+                                    ...(prev[target.id] || { title: "", content: "" }),
+                                    content: e.target.value,
+                                  },
+                                }))
+                              }
+                              placeholder={"Isi catatan bebas...\ncontoh:\na. Lari 30 menit\nb. Core workout"}
+                              className="bg-background min-h-20"
+                              disabled={noteLoadingByTarget[target.id]}
+                            />
+                            <div className="flex flex-col sm:flex-row sm:justify-end gap-2">
+                              <Button
+                                type="submit"
+                                size="sm"
+                                className="h-8"
+                                disabled={noteLoadingByTarget[target.id] || !((newNoteByTarget[target.id] || { title: "", content: "" }).title || "").trim()}
+                              >
+                                <Plus className="w-3 h-3 mr-1" />
+                                Tambah Grup Catatan
+                              </Button>
+                            </div>
+                          </form>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -380,6 +663,60 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
                 Cancel
               </Button>
               <Button type="submit" disabled={loading || !editForm.title.trim()} className="bg-primary">
+                {loading ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Note Group Dialog */}
+      <Dialog open={showEditNoteDialog} onOpenChange={setShowEditNoteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Grup Catatan</DialogTitle>
+            <DialogDescription>Perbarui nama grup dan isi catatan</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateNote}>
+            <div className="space-y-4 py-4">
+              {error && (
+                <div className="bg-destructive/10 border border-destructive/30 rounded-md p-3 text-sm text-destructive">
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">Nama Grup *</label>
+                <Input
+                  value={editNoteForm.title}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setEditNoteForm({ ...editNoteForm, title: e.target.value })
+                  }
+                  placeholder="Contoh: Olahraga"
+                  disabled={loading}
+                  className="bg-background"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-foreground block mb-2">Isi Catatan</label>
+                <Textarea
+                  value={editNoteForm.content}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                    setEditNoteForm({ ...editNoteForm, content: e.target.value })
+                  }
+                  placeholder={"Isi catatan bebas...\ncontoh:\na. Lari 30 menit\nb. Core workout"}
+                  disabled={loading}
+                  className="bg-background min-h-24"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setShowEditNoteDialog(false)} disabled={loading}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading || !editNoteForm.title.trim()} className="bg-primary">
                 {loading ? "Saving..." : "Save Changes"}
               </Button>
             </DialogFooter>
@@ -473,8 +810,8 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the resolution "{resolution.title}" and all its targets. This action cannot be
-              undone.
+              This will permanently delete the resolution "{resolution.title}" and all its targets and notes. This action
+              cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -492,12 +829,30 @@ export default function ResolutionCard({ resolution, onResolutionUpdated }: Reso
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Target?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete this target. This action cannot be undone.
+              This will permanently delete this target and all note groups inside it. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setTargetToDelete(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteTarget} className="bg-destructive hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Note Group Alert Dialog */}
+      <AlertDialog open={showDeleteNoteAlert} onOpenChange={setShowDeleteNoteAlert}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Note Group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this note group. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setNoteToDelete(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteNote} className="bg-destructive hover:bg-destructive/90">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -35,16 +35,28 @@ CREATE TABLE targets (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 
+-- Create target notes table
+CREATE TABLE target_notes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  target_id UUID NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  title VARCHAR(255) NOT NULL,
+  content TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+
 -- Create indexes for better query performance
 CREATE INDEX idx_years_user_id ON years(user_id);
 CREATE INDEX idx_resolutions_year_id ON resolutions(year_id);
 CREATE INDEX idx_targets_resolution_id ON targets(resolution_id);
+CREATE INDEX idx_target_notes_target_id ON target_notes(target_id);
 
 -- Enable RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE years ENABLE ROW LEVEL SECURITY;
 ALTER TABLE resolutions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE targets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE target_notes ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies for profiles - users can only see their own profile
 CREATE POLICY "Users can view their own profile" ON profiles FOR SELECT USING (auth.uid() = id);
@@ -97,6 +109,40 @@ CREATE POLICY "Users can delete their own targets" ON targets FOR DELETE USING (
   resolution_id IN (
     SELECT r.id FROM resolutions r 
     INNER JOIN years y ON r.year_id = y.id 
+    WHERE y.user_id = auth.uid()
+  )
+);
+
+-- RLS Policies for target_notes - cascade from targets
+CREATE POLICY "Users can view their own target notes" ON target_notes FOR SELECT USING (
+  target_id IN (
+    SELECT t.id FROM targets t
+    INNER JOIN resolutions r ON t.resolution_id = r.id
+    INNER JOIN years y ON r.year_id = y.id
+    WHERE y.user_id = auth.uid()
+  )
+);
+CREATE POLICY "Users can insert their own target notes" ON target_notes FOR INSERT WITH CHECK (
+  target_id IN (
+    SELECT t.id FROM targets t
+    INNER JOIN resolutions r ON t.resolution_id = r.id
+    INNER JOIN years y ON r.year_id = y.id
+    WHERE y.user_id = auth.uid()
+  )
+);
+CREATE POLICY "Users can update their own target notes" ON target_notes FOR UPDATE USING (
+  target_id IN (
+    SELECT t.id FROM targets t
+    INNER JOIN resolutions r ON t.resolution_id = r.id
+    INNER JOIN years y ON r.year_id = y.id
+    WHERE y.user_id = auth.uid()
+  )
+);
+CREATE POLICY "Users can delete their own target notes" ON target_notes FOR DELETE USING (
+  target_id IN (
+    SELECT t.id FROM targets t
+    INNER JOIN resolutions r ON t.resolution_id = r.id
+    INNER JOIN years y ON r.year_id = y.id
     WHERE y.user_id = auth.uid()
   )
 );
